@@ -90,6 +90,19 @@ final class ExtensionManager: ObservableObject {
         return nil
     }
 
+    /// Dotted numeric version comparison ("1.10.0" > "1.9.0"). Non-numeric
+    /// components are treated as 0; missing trailing components as 0.
+    static func isVersion(_ lhs: String, newerThan rhs: String) -> Bool {
+        let l = lhs.split(separator: ".").map { Int($0) ?? 0 }
+        let r = rhs.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(l.count, r.count) {
+            let a = i < l.count ? l[i] : 0
+            let b = i < r.count ? r[i] : 0
+            if a != b { return a > b }
+        }
+        return false
+    }
+
     func discoverExtensions() {
         var discovered: [String: ExtensionManifest] = [:]
         var discoveredSchemas: [String: SettingsSchema] = [:]
@@ -99,30 +112,52 @@ final class ExtensionManager: ObservableObject {
                 continue
             }
 
-            let manifests = loadManifests(in: directory)
-            for manifest in manifests {
-                if let existing = discovered[manifest.id] {
-                    // In dev builds the same extension legitimately appears in
-                    // both BundledExtensions (inside the built .app) and the
-                    // repo's Extensions/ directory. Same id + same version is
-                    // a harmless mirror — don't cry wolf. Different versions
-                    // means something is genuinely stale and worth surfacing.
-                    if existing.version != manifest.version {
-                        ExtensionLogger.shared.log(
-                            manifest.id,
-                            .warning,
-                            "Duplicate extension ID in discovery paths with differing versions " +
-                            "(keeping \(existing.version) at \(existing.bundleURL.path), " +
-                            "ignoring \(manifest.version) at \(manifest.bundleURL.path))"
-                        )
-                    }
-                } else {
-                    discovered[manifest.id] = manifest
-                }
-
+            // Adopts a manifest as the winning copy for its id and loads the
+            // matching settings schema (clearing any stale schema if the
+            // winner has none).
+            func adopt(_ manifest: ExtensionManifest) {
+                discovered[manifest.id] = manifest
                 if let settingsURL = manifest.settingsURL,
                    let schema = try? SettingsSchema.load(from: settingsURL) {
                     discoveredSchemas[manifest.id] = schema
+                } else {
+                    discoveredSchemas[manifest.id] = nil
+                }
+            }
+
+            let manifests = loadManifests(in: directory)
+            for manifest in manifests {
+                guard let existing = discovered[manifest.id] else {
+                    adopt(manifest)
+                    continue
+                }
+
+                // The same extension legitimately appears in multiple discovery
+                // paths (e.g. BundledExtensions inside the .app and the repo's
+                // Extensions/ during dev). Same version is a harmless mirror —
+                // keep the earlier copy. On a version clash, always run the
+                // HIGHEST version so a stale installed/older copy can never
+                // silently shadow newer code; only a genuine downgrade is
+                // surfaced as a warning.
+                if existing.version == manifest.version {
+                    continue
+                }
+
+                if Self.isVersion(manifest.version, newerThan: existing.version) {
+                    ExtensionLogger.shared.log(
+                        manifest.id,
+                        .info,
+                        "Using newer version \(manifest.version) at \(manifest.bundleURL.path) " +
+                        "(superseding \(existing.version) at \(existing.bundleURL.path))"
+                    )
+                    adopt(manifest)
+                } else {
+                    ExtensionLogger.shared.log(
+                        manifest.id,
+                        .warning,
+                        "Ignoring older duplicate \(manifest.version) at \(manifest.bundleURL.path) " +
+                        "(keeping \(existing.version) at \(existing.bundleURL.path))"
+                    )
                 }
             }
         }

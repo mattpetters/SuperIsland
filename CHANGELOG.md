@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+<!-- git-changelog-on-commit: 0147f9824fb560508527e02bf3492863c62e74d4 -->
+### Changed
+- Updated ExtensionHost/ExtensionManager.swift based on the staged diff so the commit records the current implementation changes.
+
 <!-- git-changelog-on-commit: e1095cfe1481c28e97cd4531d112d0e39181cfbb -->
 ### Changed
 - Updated docs/LAZYTASK_NATIVE_CLIENT_SPEC.md based on the staged diff so the commit records the current implementation changes.
