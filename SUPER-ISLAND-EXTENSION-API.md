@@ -355,8 +355,9 @@ Returning `null` from child positions is supported (treated as empty).
 
 ### Shared Components
 
-- `SuperIsland.components.inputComposer({ placeholder, text?, action, id?, autoFocus?, minHeight?, showsEmojiButton?, error?, spacing?, padding?, cornerRadius?, chrome?, backgroundColor? })`
+- `SuperIsland.components.inputComposer({ placeholder, text?, action, onChangeAction?, id?, autoFocus?, minHeight?, showsEmojiButton?, error?, spacing?, padding?, cornerRadius?, chrome?, backgroundColor? })`
 - Returns a reusable reply/input tray with the shared input box styling, shortcut hint, optional error text, and optional emoji button.
+- `onChangeAction` (optional): when set, the input fires this action on every keystroke (live value), in addition to `action` on submit. Use for type-to-filter / search fields. Submit does not clear the field when `onChangeAction` is set. Also available on `View.inputBox(..., { onChangeAction })`.
 
 ## 8. `settings.json` Schema
 

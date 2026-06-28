@@ -193,13 +193,14 @@ struct ViewNodeRenderer: View {
             .buttonStyle(.plain)
             .hoverPointer()
 
-        case .inputBox(let inputID, let placeholder, let text, let actionID, let autoFocus, let minHeight, let showsEmojiButton):
+        case .inputBox(let inputID, let placeholder, let text, let actionID, let onChangeActionID, let autoFocus, let minHeight, let showsEmojiButton):
             ExtensionInputBoxNode(
                 extensionID: extensionID,
                 inputID: inputID,
                 placeholder: placeholder,
                 text: text,
                 actionID: actionID,
+                onChangeActionID: onChangeActionID,
                 autoFocus: autoFocus,
                 minHeight: minHeight,
                 showsEmojiButton: showsEmojiButton
@@ -599,6 +600,7 @@ private struct ExtensionInputBoxNode: View {
     let placeholder: String
     let text: String
     let actionID: String
+    let onChangeActionID: String
     let autoFocus: Bool
     let minHeight: Double
     let showsEmojiButton: Bool
@@ -631,6 +633,7 @@ private struct ExtensionInputBoxNode: View {
         placeholder: String,
         text: String,
         actionID: String,
+        onChangeActionID: String,
         autoFocus: Bool,
         minHeight: Double,
         showsEmojiButton: Bool
@@ -640,6 +643,7 @@ private struct ExtensionInputBoxNode: View {
         self.placeholder = placeholder
         self.text = text
         self.actionID = actionID
+        self.onChangeActionID = onChangeActionID
         self.autoFocus = autoFocus
         self.minHeight = minHeight
         self.showsEmojiButton = showsEmojiButton
@@ -701,6 +705,10 @@ private struct ExtensionInputBoxNode: View {
                     localText = newValue
                 }
             }
+            .onChange(of: localText) { _, newValue in
+                guard !onChangeActionID.isEmpty else { return }
+                manager.handleAction(extensionID: extensionID, actionID: onChangeActionID, value: newValue)
+            }
             .onAppear {
                 guard autoFocus else { return }
                 DispatchQueue.main.async {
@@ -713,7 +721,10 @@ private struct ExtensionInputBoxNode: View {
         let trimmed = localText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         manager.handleAction(extensionID: extensionID, actionID: actionID, value: trimmed)
-        localText = ""
+        // Live inputs (search) keep their text on submit; clearing would wipe
+        // the query and fire a spurious empty onChange. Compose-style inputs
+        // (no live action) clear as before.
+        if onChangeActionID.isEmpty { localText = "" }
         shouldFocus = true
     }
 }

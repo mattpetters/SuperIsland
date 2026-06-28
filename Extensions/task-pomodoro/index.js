@@ -45,6 +45,7 @@ function renderInputComposer(options) {
     options.action || "",
     {
       id: options.id || "",
+      onChangeAction: options.onChangeAction || "",
       autoFocus: options.autoFocus !== false,
       minHeight: options.minHeight || 46,
       showsEmojiButton: options.showsEmojiButton === true
@@ -267,11 +268,47 @@ function applyTaskMutationResult(payload, successMessage) {
   return false;
 }
 
+function toggleListTaskByIndex(index) {
+  var task = (taskSnapshot.tasks || [])[index];
+  var identifier = taskKey(task);
+  if (!identifier || !SuperIsland.system) return;
+  if (isTaskCompleted(task)) {
+    if (typeof SuperIsland.system.uncompleteTaskwarriorTask === "function") {
+      applyTaskMutationResult(SuperIsland.system.uncompleteTaskwarriorTask(identifier), "Restored to pending");
+    }
+  } else if (typeof SuperIsland.system.completeTaskwarriorTask === "function") {
+    applyTaskMutationResult(SuperIsland.system.completeTaskwarriorTask(identifier), "Completed ✓");
+  }
+  // Re-apply the active query so the list stays consistent after the mutation.
+  readTaskSnapshot(false, taskSearchQuery, true);
+}
+
 function completeSelectedTask() {
   var task = selectedTask();
   var identifier = taskKey(task);
   if (!identifier || !SuperIsland.system || typeof SuperIsland.system.completeTaskwarriorTask !== "function") return;
-  applyTaskMutationResult(SuperIsland.system.completeTaskwarriorTask(identifier), "Marked complete");
+
+  // Remember where the task sat among pending so we can advance to its
+  // successor after it leaves the list.
+  var pendingBefore = pendingTasks();
+  var prevIndex = -1;
+  for (var i = 0; i < pendingBefore.length; i += 1) {
+    if (taskKey(pendingBefore[i]) === identifier) { prevIndex = i; break; }
+  }
+
+  if (applyTaskMutationResult(SuperIsland.system.completeTaskwarriorTask(identifier), "Completed ✓")) {
+    var tasks = pendingTasks();
+    if (!tasks.length) {
+      selectedTaskUUID = "";
+      saveState();
+      return;
+    }
+    var idx = prevIndex < 0 ? 0 : prevIndex;
+    if (idx >= tasks.length) idx = tasks.length - 1;
+    selectedTaskUUID = taskKey(tasks[idx]);
+    goalCleared = false;
+    saveState();
+  }
 }
 
 function uncompleteSelectedTask() {
@@ -531,35 +568,55 @@ function taskControlsView() {
 
 function taskSuggestionRow(task, index) {
   var title = trimString(task.description) || "(untitled task)";
+  var done = isTaskCompleted(task);
   var meta = [];
-  if (isTaskCompleted(task)) meta.push("Done");
+  if (done) meta.push("Done");
   if (trimString(task.project)) meta.push(trimString(task.project));
   if (trimString(task.priority)) meta.push("P" + trimString(task.priority));
-  return View.button(
-    View.hstack([
-      View.icon(isTaskCompleted(task) ? "checkmark.circle.fill" : "circle", {
-        size: 10,
-        color: isTaskCompleted(task) ? "green" : { r: 1, g: 1, b: 1, a: 0.42 }
+  var isCurrent = !goalCleared && taskKey(task) === selectedTaskUUID;
+  return View.hstack([
+    View.button(
+      View.icon(done ? "checkmark.circle.fill" : "circle", {
+        size: 13,
+        color: done ? "green" : { r: 1, g: 1, b: 1, a: 0.5 }
       }),
+      "task-list-toggle-" + index
+    ),
+    View.button(
       View.frame(
         View.vstack([
-          View.text(title, { style: "footnote", color: "white", lineLimit: 1 }),
+          View.text(title, { style: "footnote", color: isCurrent ? "white" : { r: 1, g: 1, b: 1, a: 0.85 }, lineLimit: 1 }),
           meta.length ? View.text(meta.join(" · "), { style: "footnote", color: { r: 1, g: 1, b: 1, a: 0.42 }, lineLimit: 1 }) : null
         ], { spacing: 1, align: "leading" }),
         { maxWidth: 9999, alignment: "leading" }
-      )
-    ], { spacing: 6, align: "center" }),
-    "task-select-" + index
-  );
+      ),
+      "task-select-" + index
+    )
+  ], { spacing: 8, align: "center" });
 }
 
 function taskSearchView() {
   readTaskSnapshot(false, taskSearchQuery, true);
-  var tasks = (taskSnapshot.tasks || []).slice(0, 5);
+  var tasks = taskSnapshot.tasks || [];
   var rows = tasks.map(function(task, index) { return taskSuggestionRow(task, index); });
+  var query = trimString(taskSearchQuery);
+  var heading = query ? (tasks.length + " match" + (tasks.length === 1 ? "" : "es")) : "All tasks";
+  var listView = rows.length
+    ? View.frame(
+        View.scroll(
+          View.vstack(rows, { spacing: 4, align: "leading" }),
+          { axes: "vertical", showsIndicators: true }
+        ),
+        { maxHeight: 180, maxWidth: 9999, alignment: "leading" }
+      )
+    : View.text(query ? "No matches" : "No tasks", {
+        style: "footnote",
+        color: { r: 1, g: 1, b: 1, a: 0.38 },
+        lineLimit: 1
+      });
   return View.vstack([
     View.hstack([
-      View.text("Find task", { style: "caption", color: { r: 1, g: 1, b: 1, a: 0.58 }, lineLimit: 1 }),
+      View.text(heading, { style: "caption", color: { r: 1, g: 1, b: 1, a: 0.58 }, lineLimit: 1 }),
       View.spacer(),
       View.button(View.icon("xmark", { size: 11, color: { r: 1, g: 1, b: 1, a: 0.5 } }), "task-mode-browse")
     ], { spacing: 6, align: "center" }),
@@ -567,6 +624,7 @@ function taskSearchView() {
       placeholder: "Search by task, project, tag",
       text: taskSearchQuery,
       action: "task-submit-search",
+      onChangeAction: "task-live-search",
       id: "task-search",
       autoFocus: true,
       minHeight: 38,
@@ -574,11 +632,7 @@ function taskSearchView() {
       chrome: false,
       spacing: 1
     }),
-    rows.length ? View.vstack(rows, { spacing: 4, align: "leading" }) : View.text("No matches", {
-      style: "footnote",
-      color: { r: 1, g: 1, b: 1, a: 0.38 },
-      lineLimit: 1
-    })
+    listView
   ], { spacing: 6, align: "leading" });
 }
 
@@ -661,6 +715,11 @@ SuperIsland.registerModule({
       return;
     }
 
+    if (actionID && actionID.indexOf("task-list-toggle-") === 0) {
+      toggleListTaskByIndex(Number(actionID.slice("task-list-toggle-".length)));
+      return;
+    }
+
     switch (actionID) {
       case "toggle":
         setRunning(!isRunning);
@@ -706,6 +765,10 @@ SuperIsland.registerModule({
       case "task-mode-browse":
         taskEditorMode = "browse";
         taskStatusMessage = "";
+        break;
+      case "task-live-search":
+        taskSearchQuery = trimString(value);
+        readTaskSnapshot(false, taskSearchQuery, true);
         break;
       case "task-submit-search":
         taskSearchQuery = trimString(value);

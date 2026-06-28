@@ -794,7 +794,7 @@ final class ExtensionJSRuntime {
               gauge: function(value, opts) { return { type: 'gauge', value: value, min: (opts && opts.min) ?? 0, max: (opts && opts.max) ?? 1, label: opts && opts.label }; },
               divider: function() { return { type: 'divider' }; },
               button: function(label, action) { return { type: 'button', label: label, action: action }; },
-              inputBox: function(placeholder, text, action, opts) { return { type: 'input-box', id: (opts && opts.id) ? String(opts.id) : '', placeholder: String(placeholder ?? ''), text: String(text ?? ''), action: action, autoFocus: opts && opts.autoFocus !== undefined ? !!opts.autoFocus : true, minHeight: (opts && opts.minHeight) ? Number(opts.minHeight) : 72, showsEmojiButton: opts && opts.showsEmojiButton !== undefined ? !!opts.showsEmojiButton : false }; },
+              inputBox: function(placeholder, text, action, opts) { return { type: 'input-box', id: (opts && opts.id) ? String(opts.id) : '', placeholder: String(placeholder ?? ''), text: String(text ?? ''), action: action, onChangeAction: (opts && opts.onChangeAction) ? String(opts.onChangeAction) : '', autoFocus: opts && opts.autoFocus !== undefined ? !!opts.autoFocus : true, minHeight: (opts && opts.minHeight) ? Number(opts.minHeight) : 72, showsEmojiButton: opts && opts.showsEmojiButton !== undefined ? !!opts.showsEmojiButton : false }; },
               toggle: function(isOn, label, action) { return { type: 'toggle', isOn: !!isOn, label: label, action: action }; },
               slider: function(value, min, max, action) { return { type: 'slider', value: value, min: min, max: max, action: action }; },
               padding: function(child, opts) { return { type: 'padding', child: child, edges: (opts && opts.edges) ?? 'all', amount: (opts && opts.amount) ?? 8 }; },
@@ -876,6 +876,7 @@ final class ExtensionJSRuntime {
                       String(options.action ?? ''),
                       {
                         id: options.id ? String(options.id) : '',
+                        onChangeAction: options.onChangeAction ? String(options.onChangeAction) : '',
                         autoFocus: options.autoFocus !== undefined ? !!options.autoFocus : true,
                         minHeight: options.minHeight !== undefined ? Number(options.minHeight) : 46,
                         showsEmojiButton: options.showsEmojiButton !== undefined ? !!options.showsEmojiButton : false
