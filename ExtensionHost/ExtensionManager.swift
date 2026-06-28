@@ -19,6 +19,11 @@ final class ExtensionManager: ObservableObject {
     @Published private(set) var extensionStates: [String: ExtensionViewState] = [:]
     @Published private(set) var settingsSchemas: [String: SettingsSchema] = [:]
 
+    /// User-defined display order (extension IDs). Extensions not present here
+    /// fall back to alphabetical, after the ordered ones.
+    private var customExtensionOrder: [String] =
+        UserDefaults.standard.stringArray(forKey: ExtensionManager.customOrderKey) ?? []
+
     let localExtensionsDirectory: URL
     let developmentExtensionsDirectory: URL
     let installedExtensionsDirectory: URL
@@ -162,9 +167,7 @@ final class ExtensionManager: ObservableObject {
             }
         }
 
-        let manifests = discovered.values.sorted { lhs, rhs in
-            lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }
+        let manifests = orderedManifests(Array(discovered.values))
         installed = manifests
         settingsSchemas = discoveredSchemas
 
@@ -177,10 +180,43 @@ final class ExtensionManager: ObservableObject {
         }
     }
 
+    /// Sorts manifests by the user's custom order, with any not-yet-ordered
+    /// extensions appended alphabetically by name.
+    private func orderedManifests(_ manifests: [ExtensionManifest]) -> [ExtensionManifest] {
+        let order = customExtensionOrder
+        return manifests.sorted { lhs, rhs in
+            let li = order.firstIndex(of: lhs.id)
+            let ri = order.firstIndex(of: rhs.id)
+            switch (li, ri) {
+            case let (l?, r?): return l < r
+            case (_?, nil): return true
+            case (nil, _?): return false
+            case (nil, nil):
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+        }
+    }
+
+    /// Moves `id` to immediately before `targetID` in the custom order and
+    /// re-publishes `installed`. Operates purely on IDs, so it is independent
+    /// of any list filtering in the UI.
+    func moveExtension(_ id: String, before targetID: String) {
+        guard id != targetID else { return }
+        var ids = installed.map(\.id)
+        guard ids.contains(id), ids.contains(targetID) else { return }
+        ids.removeAll { $0 == id }
+        guard let target = ids.firstIndex(of: targetID) else { return }
+        ids.insert(id, at: target)
+        customExtensionOrder = ids
+        UserDefaults.standard.set(ids, forKey: Self.customOrderKey)
+        installed = orderedManifests(installed)
+    }
+
     // MARK: - User-disabled persistence
 
     private static let userDisabledExtensionsKey = "extensions.userDisabled"
     private static let seenExtensionsKey = "extensions.seenIDs"
+    private static let customOrderKey = "extensions.customOrder"
 
     private func userDisabledIDs() -> Set<String> {
         let array = UserDefaults.standard.stringArray(forKey: Self.userDisabledExtensionsKey) ?? []

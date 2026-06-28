@@ -89,8 +89,14 @@ struct ExtensionsSettingsView: View {
 
     private var leftPane: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Extensions")
-                .font(.headline.weight(.semibold))
+            HStack(spacing: 6) {
+                Text("Extensions")
+                    .font(.headline.weight(.semibold))
+                Spacer(minLength: 0)
+                Text("Drag to reorder")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
 
             ScrollView {
                 LazyVStack(spacing: 6) {
@@ -102,6 +108,17 @@ struct ExtensionsSettingsView: View {
                             extensionListRow(for: manifest, isSelected: isSelected)
                         }
                         .buttonStyle(.plain)
+                        .draggable(manifest.id) {
+                            extensionListRow(for: manifest, isSelected: isSelected)
+                                .frame(width: 280)
+                        }
+                        .dropDestination(for: String.self) { items, _ in
+                            guard let draggedID = items.first, draggedID != manifest.id else {
+                                return false
+                            }
+                            manager.moveExtension(draggedID, before: manifest.id)
+                            return true
+                        }
                     }
                 }
                 .padding(.top, 2)

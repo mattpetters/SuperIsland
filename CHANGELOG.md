@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+<!-- git-changelog-on-commit: 60e835dabfdb366e10479c1fe8ae90485078c6d7 -->
+### Changed
+- Updated ExtensionHost/ExtensionManager.swift,SuperIsland/Settings/ExtensionsSettingsView.swift based on the staged diff so the commit records the current implementation changes.
+
 <!-- git-changelog-on-commit: 0147f9824fb560508527e02bf3492863c62e74d4 -->
 ### Changed
 - Updated ExtensionHost/ExtensionManager.swift based on the staged diff so the commit records the current implementation changes.
