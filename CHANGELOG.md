@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+<!-- git-changelog-on-commit: 03983c60c26ce962d481057ebabbd20b59009da2 -->
+### Changed
+- Updated SuperIsland/App/AppState.swift,SuperIsland/Views/IslandContainerView.swift based on the staged diff so the commit records the current implementation changes.
+
 <!-- git-changelog-on-commit: 51e41123c5f22dbc579d96e8a899513f0a38a768 -->
 ### Changed
 - Updated ExtensionHost/ActiveModule.swift,SuperIsland/App/AppState.swift SuperIsland/Settings/ExtensionsSettingsView.swift based on the staged diff so the commit records the current implementation changes.

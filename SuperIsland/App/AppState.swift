@@ -988,6 +988,22 @@ final class AppState: ObservableObject {
         islandModuleOrder = keys
     }
 
+    /// Shifts a module by `delta` positions in the unified order (negative =
+    /// earlier/left, positive = later/right). Clamps at the ends. Returns true
+    /// if the position actually changed. Used by the island long-press reorder.
+    @discardableResult
+    func shiftModule(_ key: String, by delta: Int) -> Bool {
+        guard delta != 0 else { return false }
+        var keys = availableModules.map(\.orderKey)
+        guard let i = keys.firstIndex(of: key) else { return false }
+        let j = max(0, min(keys.count - 1, i + delta))
+        guard i != j else { return false }
+        keys.remove(at: i)
+        keys.insert(key, at: j)
+        islandModuleOrder = keys
+        return true
+    }
+
     var fullExpandedModules: [ActiveModule] {
         let builtIns = ModuleType.allCases
             .filter { isCyclableIslandModule($0) && supportsFullExpandedModule(.builtIn($0)) && isModuleEnabled($0) }

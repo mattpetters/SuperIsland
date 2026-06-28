@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct IslandContainerView: View {
     @EnvironmentObject var appState: AppState
@@ -7,6 +8,9 @@ struct IslandContainerView: View {
     @State private var isHoveringNextButton = false
     @State private var isShelfDropTargeted = false
     @State private var shelfDragEndWorkItem: DispatchWorkItem?
+    @State private var isReorderingModule = false
+    @State private var reorderStepsApplied = 0
+    @State private var reorderDidMove = false
     private static let hoverValidationTimer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -88,12 +92,9 @@ struct IslandContainerView: View {
         .onTapGesture {
             handleSurfaceTap()
         }
-        .gesture(
-            LongPressGesture(minimumDuration: 0.5)
-                .onEnded { _ in
-                    AppDelegate.showSettingsWindow()
-                }
-        )
+        .scaleEffect(isReorderingModule ? 1.05 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isReorderingModule)
+        .gesture(moduleReorderGesture)
         .onDrop(of: ShelfStore.acceptedDropTypes, isTargeted: $isShelfDropTargeted) { providers in
             guard appState.shelfEnabled else { return false }
             return ShelfStore.shared.handleDrop(providers: providers) { addedCount in
@@ -104,6 +105,77 @@ struct IslandContainerView: View {
             }
         }
         .animation(islandSurfaceAnimation, value: appState.activeModule)
+    }
+
+    // MARK: - Long-press reorder
+
+    /// Long-press the island to "pick up" the current module, then drag
+    /// left/right to move it earlier/later in the unified order (one step per
+    /// threshold, with a tick of haptic feedback). A long-press with no drag
+    /// still opens Settings, preserving the previous behavior.
+    private var moduleReorderGesture: some Gesture {
+        LongPressGesture(minimumDuration: 0.5)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .onChanged { value in
+                switch value {
+                case .first(true):
+                    beginModuleReorder()
+                case .second(true, let drag):
+                    beginModuleReorder()
+                    if let drag {
+                        updateModuleReorder(translationX: drag.translation.width)
+                    }
+                default:
+                    break
+                }
+            }
+            .onEnded { _ in
+                endModuleReorder()
+            }
+    }
+
+    private var canReorderActiveModule: Bool {
+        appState.currentState == .compact
+            && appState.activeModule != nil
+            && appState.availableModules.count > 1
+    }
+
+    private func beginModuleReorder() {
+        guard !isReorderingModule, canReorderActiveModule else { return }
+        isReorderingModule = true
+        reorderStepsApplied = 0
+        reorderDidMove = false
+        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+    }
+
+    private func updateModuleReorder(translationX: CGFloat) {
+        guard isReorderingModule, let key = appState.activeModule?.orderKey else { return }
+        let threshold: CGFloat = 46
+        let desiredSteps = Int((translationX / threshold).rounded(.towardZero))
+        while reorderStepsApplied < desiredSteps {
+            if appState.shiftModule(key, by: 1) {
+                reorderDidMove = true
+                NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+            }
+            reorderStepsApplied += 1
+        }
+        while reorderStepsApplied > desiredSteps {
+            if appState.shiftModule(key, by: -1) {
+                reorderDidMove = true
+                NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+            }
+            reorderStepsApplied -= 1
+        }
+    }
+
+    private func endModuleReorder() {
+        let didReorder = isReorderingModule && reorderDidMove
+        isReorderingModule = false
+        reorderStepsApplied = 0
+        reorderDidMove = false
+        if !didReorder {
+            AppDelegate.showSettingsWindow()
+        }
     }
 
     // MARK: - Content
