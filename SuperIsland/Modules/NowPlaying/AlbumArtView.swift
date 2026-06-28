@@ -38,13 +38,17 @@ struct AlbumArtView: View {
         .onAppear {
             updateAverageGlowColor()
         }
-        .onChange(of: image?.tiffRepresentation) { _, _ in
+        .onChange(of: imageIdentifier) { _, _ in
             updateAverageGlowColor()
         }
     }
 
     private var resolvedCornerRadius: CGFloat {
         cornerRadius ?? size * 0.15
+    }
+
+    private var imageIdentifier: ObjectIdentifier? {
+        image.map { ObjectIdentifier($0) }
     }
 
     private func updateAverageGlowColor() {
@@ -98,8 +102,15 @@ extension NSImage {
                 return
             }
 
-            let width = cgImage.width
-            let height = cgImage.height
+            let sourceWidth = cgImage.width
+            let sourceHeight = cgImage.height
+            let maxSampleDimension = 64
+            let sampleScale = min(
+                1,
+                CGFloat(maxSampleDimension) / CGFloat(max(sourceWidth, sourceHeight))
+            )
+            let width = max(1, Int(CGFloat(sourceWidth) * sampleScale))
+            let height = max(1, Int(CGFloat(sourceHeight) * sampleScale))
             let totalPixels = width * height
 
             guard totalPixels > 0,

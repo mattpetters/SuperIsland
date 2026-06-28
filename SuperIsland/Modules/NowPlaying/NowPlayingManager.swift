@@ -50,7 +50,14 @@ final class NowPlayingManager: ObservableObject {
     @Published var title: String = ""
     @Published var artist: String = ""
     @Published var album: String = ""
-    @Published var albumArt: NSImage?
+    @Published var albumArt: NSImage? {
+        didSet {
+            if !Self.sameImageInstance(albumArt, oldValue) {
+                cachedNormalizedArtworkImageID = nil
+                cachedNormalizedArtworkDataURL = nil
+            }
+        }
+    }
     @Published var albumArtColor: NSColor?
     @Published var isPlaying: Bool = false
     @Published var duration: TimeInterval = 0
@@ -111,11 +118,17 @@ final class NowPlayingManager: ObservableObject {
     private var recentTrackChangeDate: Date = .distantPast
     private var lastKnownSnapshot: NowPlayingSnapshot?
     private var providerRefreshTask: Task<Void, Never>?
+    private var providerRefreshPending = false
+    private var lastProviderRefreshStartedAt: Date = .distantPast
     private var adapterProcess: Process?
     private var adapterPipeHandler: JSONLinesPipeHandler?
     private var adapterStreamTask: Task<Void, Never>?
     private var adapterDidDeliverUpdate = false
+    private var currentArtworkDataPayload: String?
+    private var cachedNormalizedArtworkImageID: ObjectIdentifier?
+    private var cachedNormalizedArtworkDataURL: String?
     private let appleScriptQueue = DispatchQueue(label: "superisland.applescript", qos: .userInitiated)
+    private let providerRefreshMinimumInterval: TimeInterval = 0.5
 
     private init() {
         loadMediaRemote()
@@ -211,7 +224,16 @@ final class NowPlayingManager: ObservableObject {
 
     private func observeAlbumArtColor() {
         $albumArt
-            .removeDuplicates { $0?.tiffRepresentation == $1?.tiffRepresentation }
+            .removeDuplicates { lhs, rhs in
+                switch (lhs, rhs) {
+                case (nil, nil):
+                    return true
+                case let (lhs?, rhs?):
+                    return lhs === rhs
+                default:
+                    return false
+                }
+            }
             .sink { [weak self] image in
                 guard let self else { return }
                 guard let image else {
@@ -330,7 +352,7 @@ final class NowPlayingManager: ObservableObject {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
-        process.arguments = [resources.scriptURL.path, resources.frameworkURL.path, "stream"]
+        process.arguments = [resources.scriptURL.path, resources.frameworkURL.path, "stream", "--debounce=250"]
 
         let pipeHandler = JSONLinesPipeHandler()
         process.standardOutput = await pipeHandler.getPipe()
@@ -476,14 +498,19 @@ final class NowPlayingManager: ObservableObject {
             lastPausedChromeTabURL = ""
         }
 
-        if let artworkDataString = payload.artworkData,
-           let artworkData = Data(base64Encoded: artworkDataString.trimmingCharacters(in: .whitespacesAndNewlines)),
-           let image = NSImage(data: artworkData) {
-            albumArt = image
-            currentArtworkURL = nil
+        if let artworkDataString = payload.artworkData {
+            let artworkPayload = artworkDataString.trimmingCharacters(in: .whitespacesAndNewlines)
+            if artworkPayload != currentArtworkDataPayload,
+               let artworkData = Data(base64Encoded: artworkPayload),
+               let image = NSImage(data: artworkData) {
+                currentArtworkDataPayload = artworkPayload
+                albumArt = image
+                currentArtworkURL = nil
+            }
         } else if resolvedTitle.isEmpty {
             albumArt = nil
             currentArtworkURL = nil
+            currentArtworkDataPayload = nil
         }
 
         rememberCurrentSnapshot(providerID: "mediaRemoteAdapter")
@@ -549,10 +576,35 @@ final class NowPlayingManager: ObservableObject {
             return
         }
 
-        let currentSource = sourceName
-        providerRefreshTask?.cancel()
+        providerRefreshPending = true
+        startProviderRefreshTaskIfNeeded()
+    }
+
+    private func startProviderRefreshTaskIfNeeded() {
+        guard providerRefreshTask == nil else { return }
         providerRefreshTask = Task { [weak self] in
-            await self?.refreshProviderSnapshots(preferredSourceName: currentSource)
+            await self?.drainProviderRefreshRequests()
+        }
+    }
+
+    private func drainProviderRefreshRequests() async {
+        while providerRefreshPending {
+            providerRefreshPending = false
+
+            let elapsed = Date().timeIntervalSince(lastProviderRefreshStartedAt)
+            if elapsed < providerRefreshMinimumInterval {
+                let delay = UInt64((providerRefreshMinimumInterval - elapsed) * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: delay)
+            }
+
+            guard !Task.isCancelled else { break }
+            lastProviderRefreshStartedAt = Date()
+            await refreshProviderSnapshots(preferredSourceName: sourceName)
+        }
+
+        providerRefreshTask = nil
+        if providerRefreshPending {
+            startProviderRefreshTaskIfNeeded()
         }
     }
 
@@ -745,12 +797,14 @@ final class NowPlayingManager: ObservableObject {
         guard let urlString = runAppleScript(script), let url = URL(string: urlString) else { return }
 
         DispatchQueue.main.async { [weak self] in
+            self?.currentArtworkDataPayload = nil
             self?.currentArtworkURL = urlString
         }
 
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let data, let image = NSImage(data: data) else { return }
             DispatchQueue.main.async {
+                self?.currentArtworkDataPayload = nil
                 self?.albumArt = image
             }
         }.resume()
@@ -1086,6 +1140,7 @@ final class NowPlayingManager: ObservableObject {
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let data, let image = NSImage(data: data) else { return }
             DispatchQueue.main.async {
+                self?.currentArtworkDataPayload = nil
                 self?.albumArt = image
             }
         }.resume()
@@ -1119,11 +1174,17 @@ final class NowPlayingManager: ObservableObject {
     // MARK: - Playback Timer
 
     private func updatePlaybackTimer() {
-        ModuleRefreshScheduler.shared.unregister(playbackRefreshToken)
-        playbackRefreshToken = nil
-        lastPlaybackTickDate = nil
+        guard isPlaying, duration > 0 else {
+            stopPlaybackTimer()
+            return
+        }
 
-        guard isPlaying, duration > 0 else { return }
+        guard playbackRefreshToken == nil else {
+            if lastPlaybackTickDate == nil {
+                lastPlaybackTickDate = Date()
+            }
+            return
+        }
 
         lastPlaybackTickDate = Date()
         playbackRefreshToken = ModuleRefreshScheduler.shared.register(
@@ -1139,9 +1200,15 @@ final class NowPlayingManager: ObservableObject {
         }
     }
 
+    private func stopPlaybackTimer() {
+        ModuleRefreshScheduler.shared.unregister(playbackRefreshToken)
+        playbackRefreshToken = nil
+        lastPlaybackTickDate = nil
+    }
+
     private func advancePlaybackProgress() {
         guard isPlaying, duration > 0 else {
-            updatePlaybackTimer()
+            stopPlaybackTimer()
             return
         }
 
@@ -1152,7 +1219,7 @@ final class NowPlayingManager: ObservableObject {
         elapsedTime += min(max(delta, 0.5), 5) * max(playbackRate, 1)
         if elapsedTime >= duration {
             elapsedTime = duration
-            updatePlaybackTimer()
+            stopPlaybackTimer()
         }
     }
 
@@ -1546,14 +1613,41 @@ final class NowPlayingManager: ObservableObject {
             return currentArtworkURL
         }
 
-        guard let albumArt,
-              let tiffData = albumArt.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+        guard let albumArt else {
+            cachedNormalizedArtworkImageID = nil
+            cachedNormalizedArtworkDataURL = nil
             return nil
         }
 
-        return "data:image/png;base64," + pngData.base64EncodedString()
+        let imageID = ObjectIdentifier(albumArt)
+        if cachedNormalizedArtworkImageID == imageID {
+            return cachedNormalizedArtworkDataURL
+        }
+
+        guard
+              let tiffData = albumArt.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            cachedNormalizedArtworkImageID = imageID
+            cachedNormalizedArtworkDataURL = nil
+            return nil
+        }
+
+        let dataURL = "data:image/png;base64," + pngData.base64EncodedString()
+        cachedNormalizedArtworkImageID = imageID
+        cachedNormalizedArtworkDataURL = dataURL
+        return dataURL
+    }
+
+    private static func sameImageInstance(_ lhs: NSImage?, _ rhs: NSImage?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case let (lhs?, rhs?):
+            return lhs === rhs
+        default:
+            return false
+        }
     }
 
     private func isChromeBundleIdentifier(_ bundleIdentifier: String) -> Bool {
@@ -1592,6 +1686,7 @@ final class NowPlayingManager: ObservableObject {
         sourceName = ""
         currentAlbumArtist = ""
         currentArtworkURL = nil
+        currentArtworkDataPayload = nil
         currentTrackIdentifier = ""
         currentTrackIsLocalFile = false
         currentChromeTabURL = ""
@@ -1599,9 +1694,7 @@ final class NowPlayingManager: ObservableObject {
         currentBundleIdentifier = ""
         lastDetectedTitle = ""
         providerStatus = browserDetectionEnabled ? .idle : .browserDisabled
-        ModuleRefreshScheduler.shared.unregister(playbackRefreshToken)
-        playbackRefreshToken = nil
-        lastPlaybackTickDate = nil
+        stopPlaybackTimer()
     }
 
     deinit {
