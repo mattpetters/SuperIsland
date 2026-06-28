@@ -198,6 +198,11 @@ Notes:
 
 - `getAIUsage()` -> usage object or `null`
 - `getNowPlaying()` -> normalized now playing snapshot or `null`
+- `getTaskwarriorTasks(forceRefresh?, query?, includeCompleted?)` -> Taskwarrior snapshot (requires `"taskwarrior"`)
+- `completeTaskwarriorTask(identifier)` -> marks a task done (requires `"taskwarrior"`)
+- `uncompleteTaskwarriorTask(identifier)` -> restores a completed task to pending (requires `"taskwarrior"`)
+- `renameTaskwarriorTask(identifier, description)` -> changes the task description (requires `"taskwarrior"`)
+- `createTaskwarriorTask(description)` -> creates a new pending task (requires `"taskwarrior"`)
 - `getLatestNotification()` -> latest mirrored notification object or `null`
 - `getRecentNotifications(limit?)` -> mirrored notifications array (newest first)
 - `getWhatsAppWeb(limit?)` -> WhatsApp Web bridge state + recent parsed messages (requires `"network"`)

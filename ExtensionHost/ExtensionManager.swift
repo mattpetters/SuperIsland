@@ -68,8 +68,9 @@ final class ExtensionManager: ObservableObject {
 
         let appSupportBase = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let appSupportName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "SuperIsland"
         installedExtensionsDirectory = appSupportBase
-            .appendingPathComponent("SuperIsland", isDirectory: true)
+            .appendingPathComponent(appSupportName, isDirectory: true)
             .appendingPathComponent("Extensions", isDirectory: true)
 
         try? fileManager.createDirectory(at: installedExtensionsDirectory, withIntermediateDirectories: true)

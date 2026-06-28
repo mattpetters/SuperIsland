@@ -57,6 +57,7 @@ targets:
           export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
           DEST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/BundledExtensions"
           mkdir -p "$DEST"
+          find "$DEST" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
           # Pre-bundle WhatsApp provider with esbuild so node_modules aren't needed at runtime
           WA_PROVIDER="${SRCROOT}/Extensions/whatsapp-web/provider"
@@ -70,7 +71,7 @@ targets:
               --outfile="${WA_PROVIDER}/bundle.cjs" 2>&1 && echo "esbuild: done" || echo "esbuild: failed (will use index.mjs)"
           fi
 
-          for ext in ai-usage pomodoro whatsapp-web agents-status linear-mentions lastfm-scrobbler; do
+          for ext in ai-usage pomodoro task-pomodoro whatsapp-web agents-status linear-mentions lastfm-scrobbler; do
             SRC="${SRCROOT}/Extensions/${ext}"
             if [ -d "$SRC" ]; then
               rsync -a --delete \

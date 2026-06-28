@@ -245,7 +245,7 @@ final class ExtensionJSRuntime {
         let setValue: @convention(block) (String, JSValue) -> Void = { [weak self] key, value in
             guard let self else { return }
             let namespacedKey = self.storeKey(for: key)
-            self.save(value: value.toObject(), forKey: namespacedKey)
+            self.save(jsValue: value, forKey: namespacedKey)
         }
 
         store.setObject(getValue, forKeyedSubscript: "get" as NSString)
@@ -268,7 +268,7 @@ final class ExtensionJSRuntime {
         let setValue: @convention(block) (String, JSValue) -> Void = { [weak self] key, value in
             guard let self else { return }
             let namespacedKey = self.settingsKey(for: key)
-            self.save(value: value.toObject(), forKey: namespacedKey)
+            self.save(jsValue: value, forKey: namespacedKey)
         }
 
         settings.setObject(getValue, forKeyedSubscript: "get" as NSString)
@@ -433,6 +433,88 @@ final class ExtensionJSRuntime {
             return JSValue(object: payload ?? NSNull(), in: self.context)
         }
 
+        let getTaskwarriorTasks: @convention(block) (JSValue?, JSValue?, JSValue?) -> JSValue? = { [weak self] forceArg, queryArg, includeCompletedArg in
+            guard let self else { return nil }
+            guard self.manifest.permissions.contains("taskwarrior") else {
+                return JSValue(object: ["tasks": [], "isRefreshing": false, "lastError": "permission_denied"], in: self.context)
+            }
+            guard Thread.isMainThread else {
+                return JSValue(object: ["tasks": [], "isRefreshing": false, "lastError": "main_thread_required"], in: self.context)
+            }
+
+            let forceRefresh = forceArg?.toBool() ?? false
+            let query = queryArg?.toString() ?? ""
+            let includeCompleted = includeCompletedArg?.toBool() ?? false
+            let payload = MainActor.assumeIsolated {
+                TaskwarriorProvider.shared.snapshot(
+                    forceRefresh: forceRefresh,
+                    query: query,
+                    includeCompleted: includeCompleted
+                )
+            }
+            return JSValue(object: payload, in: self.context)
+        }
+
+        let completeTaskwarriorTask: @convention(block) (String) -> JSValue? = { [weak self] identifier in
+            guard let self else { return nil }
+            guard self.manifest.permissions.contains("taskwarrior") else {
+                return JSValue(object: ["ok": false, "error": "permission_denied"], in: self.context)
+            }
+            guard Thread.isMainThread else {
+                return JSValue(object: ["ok": false, "error": "main_thread_required"], in: self.context)
+            }
+
+            let payload = MainActor.assumeIsolated {
+                TaskwarriorProvider.shared.completeTask(identifier: identifier)
+            }
+            return JSValue(object: payload, in: self.context)
+        }
+
+        let uncompleteTaskwarriorTask: @convention(block) (String) -> JSValue? = { [weak self] identifier in
+            guard let self else { return nil }
+            guard self.manifest.permissions.contains("taskwarrior") else {
+                return JSValue(object: ["ok": false, "error": "permission_denied"], in: self.context)
+            }
+            guard Thread.isMainThread else {
+                return JSValue(object: ["ok": false, "error": "main_thread_required"], in: self.context)
+            }
+
+            let payload = MainActor.assumeIsolated {
+                TaskwarriorProvider.shared.uncompleteTask(identifier: identifier)
+            }
+            return JSValue(object: payload, in: self.context)
+        }
+
+        let renameTaskwarriorTask: @convention(block) (String, String) -> JSValue? = { [weak self] identifier, description in
+            guard let self else { return nil }
+            guard self.manifest.permissions.contains("taskwarrior") else {
+                return JSValue(object: ["ok": false, "error": "permission_denied"], in: self.context)
+            }
+            guard Thread.isMainThread else {
+                return JSValue(object: ["ok": false, "error": "main_thread_required"], in: self.context)
+            }
+
+            let payload = MainActor.assumeIsolated {
+                TaskwarriorProvider.shared.renameTask(identifier: identifier, description: description)
+            }
+            return JSValue(object: payload, in: self.context)
+        }
+
+        let createTaskwarriorTask: @convention(block) (String) -> JSValue? = { [weak self] description in
+            guard let self else { return nil }
+            guard self.manifest.permissions.contains("taskwarrior") else {
+                return JSValue(object: ["ok": false, "error": "permission_denied"], in: self.context)
+            }
+            guard Thread.isMainThread else {
+                return JSValue(object: ["ok": false, "error": "main_thread_required"], in: self.context)
+            }
+
+            let payload = MainActor.assumeIsolated {
+                TaskwarriorProvider.shared.createTask(description: description)
+            }
+            return JSValue(object: payload, in: self.context)
+        }
+
         let getLatestNotification: @convention(block) () -> JSValue? = { [weak self] in
             guard let self else { return nil }
             guard self.manifest.permissions.contains("notifications") else {
@@ -555,6 +637,11 @@ final class ExtensionJSRuntime {
 
         system.setObject(getAIUsage, forKeyedSubscript: "getAIUsage" as NSString)
         system.setObject(getNowPlaying, forKeyedSubscript: "getNowPlaying" as NSString)
+        system.setObject(getTaskwarriorTasks, forKeyedSubscript: "getTaskwarriorTasks" as NSString)
+        system.setObject(completeTaskwarriorTask, forKeyedSubscript: "completeTaskwarriorTask" as NSString)
+        system.setObject(uncompleteTaskwarriorTask, forKeyedSubscript: "uncompleteTaskwarriorTask" as NSString)
+        system.setObject(renameTaskwarriorTask, forKeyedSubscript: "renameTaskwarriorTask" as NSString)
+        system.setObject(createTaskwarriorTask, forKeyedSubscript: "createTaskwarriorTask" as NSString)
         system.setObject(getLatestNotification, forKeyedSubscript: "getLatestNotification" as NSString)
         system.setObject(getRecentNotifications, forKeyedSubscript: "getRecentNotifications" as NSString)
         system.setObject(getWhatsAppWeb, forKeyedSubscript: "getWhatsAppWeb" as NSString)
@@ -937,6 +1024,49 @@ final class ExtensionJSRuntime {
         } else {
             defaults.set(String(describing: value), forKey: key)
         }
+    }
+
+    private func save(jsValue: JSValue, forKey key: String) {
+        guard let value = propertyListSafeValue(from: jsValue) else {
+            defaults.removeObject(forKey: key)
+            return
+        }
+
+        save(value: value, forKey: key)
+    }
+
+    private func propertyListSafeValue(from value: JSValue) -> Any? {
+        if value.isUndefined || value.isNull {
+            return nil
+        }
+
+        if value.isBoolean {
+            return value.toBool()
+        }
+
+        if value.isNumber {
+            let number = value.toDouble()
+            return number.isFinite ? number : nil
+        }
+
+        if value.isString {
+            return value.toString() ?? ""
+        }
+
+        if value.isObject,
+           let json = context.objectForKeyedSubscript("JSON"),
+           let stringify = json.forProperty("stringify"),
+           !stringify.isUndefined,
+           let jsonString = invokeJS("JSON.stringify(store value)", {
+               stringify.call(withArguments: [value])
+           })?.toString(),
+           jsonString != "undefined",
+           let data = jsonString.data(using: .utf8),
+           JSONSerialization.isValidJSONObject((try? JSONSerialization.jsonObject(with: data)) ?? NSNull()) {
+            return data
+        }
+
+        return value.toString() ?? ""
     }
 
     private func jsValueFromStoredObject(_ value: Any) -> JSValue? {

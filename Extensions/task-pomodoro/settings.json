@@ -1,0 +1,61 @@
+{
+  "sections": [
+    {
+      "title": "Timer",
+      "fields": [
+        {
+          "type": "slider",
+          "key": "workDuration",
+          "label": "Work duration (min)",
+          "min": 5,
+          "max": 90,
+          "step": 5,
+          "default": 25
+        },
+        {
+          "type": "slider",
+          "key": "breakDuration",
+          "label": "Break duration (min)",
+          "min": 1,
+          "max": 30,
+          "step": 1,
+          "default": 5
+        }
+      ]
+    },
+    {
+      "title": "Task Goal",
+      "fields": [
+        {
+          "type": "toggle",
+          "key": "taskGoalEnabled",
+          "label": "Show Taskwarrior goal",
+          "default": true
+        },
+        {
+          "type": "toggle",
+          "key": "showProject",
+          "label": "Show task project",
+          "default": true
+        }
+      ]
+    },
+    {
+      "title": "Notifications",
+      "fields": [
+        {
+          "type": "toggle",
+          "key": "notifyOnComplete",
+          "label": "Notify when phase ends",
+          "default": true
+        },
+        {
+          "type": "toggle",
+          "key": "playSound",
+          "label": "Play notification sound",
+          "default": true
+        }
+      ]
+    }
+  ]
+}

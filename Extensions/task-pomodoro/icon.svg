@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg width="512px" height="512px" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" role="img" preserveAspectRatio="xMidYMid meet">
+  <!-- Taskwarrior brand mark: warrior helmet badge -->
+  <circle cx="256" cy="256" r="248" fill="#8C8F92"/>
+  <circle cx="256" cy="256" r="230" fill="#3B3E41"/>
+  <!-- Warrior helmet silhouette -->
+  <path fill="#F7F7F7" d="M256 130
+    C196 130 150 166 144 234
+    C140 270 146 306 164 336
+    L188 392
+    L222 350
+    L256 378
+    L290 350
+    L324 392
+    L348 336
+    C366 306 372 270 368 234
+    C362 166 316 130 256 130 Z"/>
+  <!-- T-shaped face opening (eye slit + nose guard) -->
+  <path fill="#3B3E41" d="M188 230
+    L324 230
+    L324 262
+    L274 262
+    L274 342
+    L238 342
+    L238 262
+    L188 262 Z"/>
+</svg>
