@@ -269,6 +269,15 @@ final class AppState: ObservableObject {
     @AppStorage("module.notifications.enabledSources") private var notificationEnabledSourcesRaw = NotificationFeedSource.defaultEnabledRawValue
     @AppStorage("module.teleprompter.enabled") var teleprompterEnabled = false
     @AppStorage("module.shelf.autoOpenOnDrop") var shelfAutoOpenOnDrop = true
+
+    // Unified island module order (built-ins + extensions), stored as a
+    // comma-joined list of ActiveModule.orderKey values. Module keys never
+    // contain commas, so this round-trips cleanly.
+    @AppStorage("island.moduleOrder") private var islandModuleOrderRaw = ""
+    var islandModuleOrder: [String] {
+        get { islandModuleOrderRaw.isEmpty ? [] : islandModuleOrderRaw.components(separatedBy: ",") }
+        set { islandModuleOrderRaw = newValue.joined(separator: ",") }
+    }
     @AppStorage("module.shelf.defaultToShelf") var shelfDefaultToShelf = false
 
     // Appearance settings
@@ -946,14 +955,44 @@ final class AppState: ObservableObject {
         let builtIns = ModuleType.allCases
             .filter { isCyclableIslandModule($0) && isModuleEnabled($0) }
             .map(ActiveModule.builtIn)
-        return builtIns + ExtensionManager.shared.availableModules
+        return orderedModules(builtIns + ExtensionManager.shared.availableModules)
+    }
+
+    /// Sorts modules by the user's unified island order. Modules not yet in the
+    /// saved order keep their incoming relative position, after ordered ones.
+    private func orderedModules(_ modules: [ActiveModule]) -> [ActiveModule] {
+        let order = islandModuleOrder
+        guard !order.isEmpty else { return modules }
+        return modules.enumerated().sorted { lhs, rhs in
+            let li = order.firstIndex(of: lhs.element.orderKey)
+            let ri = order.firstIndex(of: rhs.element.orderKey)
+            switch (li, ri) {
+            case let (l?, r?): return l < r
+            case (_?, nil): return true
+            case (nil, _?): return false
+            case (nil, nil): return lhs.offset < rhs.offset
+            }
+        }.map(\.element)
+    }
+
+    /// Moves `key` immediately before `targetKey` in the unified island order.
+    /// Seeds the order from the current display order so partial saves stay
+    /// consistent. Works for both built-ins and extensions.
+    func moveModule(_ key: String, before targetKey: String) {
+        guard key != targetKey else { return }
+        var keys = availableModules.map(\.orderKey)
+        guard keys.contains(key), keys.contains(targetKey) else { return }
+        keys.removeAll { $0 == key }
+        guard let target = keys.firstIndex(of: targetKey) else { return }
+        keys.insert(key, at: target)
+        islandModuleOrder = keys
     }
 
     var fullExpandedModules: [ActiveModule] {
         let builtIns = ModuleType.allCases
             .filter { isCyclableIslandModule($0) && supportsFullExpandedModule(.builtIn($0)) && isModuleEnabled($0) }
             .map(ActiveModule.builtIn)
-        return builtIns + ExtensionManager.shared.availableModules.filter(supportsFullExpandedModule)
+        return orderedModules(builtIns + ExtensionManager.shared.availableModules.filter(supportsFullExpandedModule))
     }
 
     var fullExpandedTabs: [FullExpandedTab] {

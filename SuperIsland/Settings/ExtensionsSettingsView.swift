@@ -22,6 +22,7 @@ struct ExtensionsSettingsView: View {
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var manager = ExtensionManager.shared
     @ObservedObject private var logger = ExtensionLogger.shared
+    @ObservedObject private var appState = AppState.shared
     @State private var selectedExtensionID: String?
     @State private var listFilter: ExtensionListFilter = .all
 
@@ -89,6 +90,10 @@ struct ExtensionsSettingsView: View {
 
     private var leftPane: some View {
         VStack(alignment: .leading, spacing: 8) {
+            islandOrderSection
+
+            Divider()
+
             HStack(spacing: 6) {
                 Text("Extensions")
                     .font(.headline.weight(.semibold))
@@ -126,6 +131,82 @@ struct ExtensionsSettingsView: View {
         }
         .padding(10)
         .panelBackground()
+    }
+
+    private var islandOrderSection: some View {
+        let modules = appState.availableModules
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("Island order")
+                    .font(.headline.weight(.semibold))
+                Spacer(minLength: 0)
+                Text("Drag to reorder")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            if modules.isEmpty {
+                Text("No active modules")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 4) {
+                        ForEach(modules, id: \.orderKey) { module in
+                            islandOrderRow(module)
+                                .draggable(module.orderKey) {
+                                    islandOrderRow(module).frame(width: 280)
+                                }
+                                .dropDestination(for: String.self) { items, _ in
+                                    guard let dragged = items.first, dragged != module.orderKey else {
+                                        return false
+                                    }
+                                    appState.moveModule(dragged, before: module.orderKey)
+                                    return true
+                                }
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+                .frame(maxHeight: 150)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func islandOrderRow(_ module: ActiveModule) -> some View {
+        HStack(spacing: 8) {
+            Group {
+                if let image = module.iconImage {
+                    Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
+                } else {
+                    Image(systemName: module.iconName)
+                }
+            }
+            .frame(width: 16, height: 16)
+            .foregroundStyle(.secondary)
+
+            Text(module.displayName)
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+
+            if case .builtIn = module {
+                Text("Built-in")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 5)
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.05)))
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder

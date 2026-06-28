@@ -5,6 +5,14 @@ enum ActiveModule: Equatable, Hashable {
     case builtIn(ModuleType)
     case extension_(String)
 
+    /// Stable, persistable key for ordering (matches HomeWidgetSelection.rawValue).
+    var orderKey: String {
+        switch self {
+        case .builtIn(let module): return "builtIn.\(module.rawValue)"
+        case .extension_(let id): return "extension.\(id)"
+        }
+    }
+
     @MainActor
     var displayName: String {
         switch self {
