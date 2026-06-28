@@ -19,6 +19,12 @@ struct MascotRendererView: View {
                     .controlSize(.small)
                     .tint(.white)
                     .frame(width: size, height: size)
+            } else if let spritesheetURL = manager.currentPetdexSpritesheetURL {
+                PetdexSpriteMascotView(
+                    url: spritesheetURL,
+                    size: size,
+                    expression: expressionOverride ?? manager.currentExpression
+                )
             } else if let loopURL = manager.currentLoopVideoURL {
                 MascotVideoPlayer(url: loopURL)
                     .frame(width: size, height: size)
@@ -43,7 +49,7 @@ struct MascotRendererView: View {
     }
 
     private var shouldHideMascot: Bool {
-        extensionID == "superisland.pomodoro" && !manager.showInPomodoro
+        (extensionID == "superisland.pomodoro" || extensionID == "superisland.task-pomodoro") && !manager.showInPomodoro
     }
 }
 

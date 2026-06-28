@@ -162,12 +162,39 @@ enum CodableValue: Codable, Equatable {
 
 // MARK: - Known mascot slugs available from masko.ai
 
+enum MascotCatalogSource {
+    case masko
+    case petdex
+}
+
 struct MascotCatalogEntry: Identifiable {
     let slug: String
     let name: String
     let thumbnailURL: String
+    let source: MascotCatalogSource
 
-    var id: String { slug }
+    init(slug: String, name: String, thumbnailURL: String, source: MascotCatalogSource = .masko) {
+        self.slug = slug
+        self.name = name
+        self.thumbnailURL = thumbnailURL
+        self.source = source
+    }
+
+    var id: String {
+        switch source {
+        case .masko:
+            return slug
+        case .petdex:
+            return "petdex:\(slug)"
+        }
+    }
+
+    var providerName: String {
+        switch source {
+        case .masko: return "Masko"
+        case .petdex: return "Petdex"
+        }
+    }
 }
 
 extension MascotTemplate {

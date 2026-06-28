@@ -17,6 +17,13 @@ final class MascotManager: ObservableObject {
     // Current video URL for the view layer (loop only, no transitions for instant switching)
     @Published private(set) var currentLoopVideoURL: URL?
     @Published private(set) var thumbnailURL: URL?
+    @Published private(set) var currentPetdexPet: PetdexPet?
+    @Published private(set) var currentPetdexSpritesheetURL: URL?
+    @Published private(set) var petdexPets: [PetdexPet] = []
+    @Published private(set) var petdexSearchResults: [PetdexPet] = []
+    @Published private(set) var isLoadingPetdexManifest = false
+    @Published private(set) var isSearchingPetdex = false
+    @Published private(set) var petdexSearchMessage: String?
 
     // Download status per slug
     @Published var downloadedSlugs: Set<String> = []
@@ -40,15 +47,42 @@ final class MascotManager: ObservableObject {
     ]
 
     var availableMascots: [MascotCatalogEntry] {
-        MascotTemplate.remoteTemplates
+        availableMascots(matching: "")
+    }
+
+    func availableMascots(matching rawQuery: String) -> [MascotCatalogEntry] {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let maskoEntries = MascotTemplate.remoteTemplates.filter {
+            query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.slug.localizedCaseInsensitiveContains(query)
+        }
+        let petdexEntries = petdexSearchResults
+            .filter { $0.matches(query) }
+            .map(\.catalogEntry)
+
+        if query.isEmpty {
+            var entries = maskoEntries
+            if let selectedPetdex = currentPetdexPet?.catalogEntry,
+               !entries.contains(where: { $0.id == selectedPetdex.id }) {
+                entries.insert(selectedPetdex, at: maskoEntries.count)
+            }
+            return entries
+        }
+
+        return maskoEntries + Array(petdexEntries.prefix(160))
     }
 
     var currentTemplateName: String {
-        template?.name ?? selectedSlug.capitalized
+        if let currentPetdexPet {
+            return currentPetdexPet.displayName
+        }
+        return template?.name ?? selectedSlug.capitalized
     }
 
     private init() {
         refreshDownloadedSlugs()
+        if Self.petdexSlug(from: selectedSlug) != nil {
+            loadCachedPetdexManifest()
+        }
         Task {
             await loadTemplate(slug: selectedSlug)
         }
@@ -61,6 +95,8 @@ final class MascotManager: ObservableObject {
         currentNodeID = nil
         currentLoopVideoURL = nil
         thumbnailURL = nil
+        currentPetdexPet = nil
+        currentPetdexSpritesheetURL = nil
         Task {
             await loadTemplate(slug: slug)
         }
@@ -91,6 +127,9 @@ final class MascotManager: ObservableObject {
     // MARK: - Download Management
 
     func isMascotDownloaded(_ slug: String) -> Bool {
+        if let petdexSlug = Self.petdexSlug(from: slug) {
+            return localPetdexSpritesheetURL(for: petdexSlug) != nil
+        }
         if slug == "otto" { return true } // Bundled
         return downloadedSlugs.contains(slug)
     }
@@ -98,6 +137,10 @@ final class MascotManager: ObservableObject {
     @discardableResult
     func downloadMascot(_ slug: String) async -> Bool {
         guard !isMascotDownloaded(slug) else { return true }
+
+        if let petdexSlug = Self.petdexSlug(from: slug) {
+            return await downloadPetdexPet(slug: petdexSlug)
+        }
 
         do {
             let (decoded, data) = try await fetchTemplate(slug: slug)
@@ -130,6 +173,12 @@ final class MascotManager: ObservableObject {
     func loadTemplate(slug: String) async {
         isLoading = true
         loadError = nil
+
+        if let petdexSlug = Self.petdexSlug(from: slug) {
+            await loadPetdexPet(slug: petdexSlug)
+            isLoading = false
+            return
+        }
 
         // Otto: try bundled first
         if slug == "otto", let bundled = loadBundledTemplate() {
@@ -167,6 +216,8 @@ final class MascotManager: ObservableObject {
     }
 
     private func applyTemplate(_ newTemplate: MascotTemplate) {
+        currentPetdexPet = nil
+        currentPetdexSpritesheetURL = nil
         template = newTemplate
 
         let initialNode = newTemplate.node(byID: newTemplate.initialNode) ?? newTemplate.nodes.first
@@ -263,6 +314,157 @@ final class MascotManager: ObservableObject {
         guard let httpResponse = response as? HTTPURLResponse else { return }
         guard (200...299).contains(httpResponse.statusCode) else {
             throw MascotLoadError.httpStatus(httpResponse.statusCode)
+        }
+    }
+
+    // MARK: - Petdex
+
+    private static let petdexSelectionPrefix = "petdex:"
+    private static let petdexManifestURL = URL(string: "https://petdex.dev/api/manifest")!
+
+    private static func petdexSlug(from selectionID: String) -> String? {
+        guard selectionID.hasPrefix(petdexSelectionPrefix) else { return nil }
+        let slug = selectionID.dropFirst(petdexSelectionPrefix.count)
+        return slug.isEmpty ? nil : String(slug)
+    }
+
+    private var petdexManifestCacheURL: URL {
+        templateCacheDirectory.appendingPathComponent("petdex-manifest.json")
+    }
+
+    private var petdexSpritesheetCacheDirectory: URL {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let dir = caches.appendingPathComponent("SuperIsland/PetdexSprites", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func loadCachedPetdexManifest() {
+        guard let data = try? Data(contentsOf: petdexManifestCacheURL),
+              let manifest = try? JSONDecoder().decode(PetdexManifest.self, from: data) else {
+            return
+        }
+        petdexPets = manifest.pets
+    }
+
+    func loadPetdexManifest(force: Bool = false) async {
+        if isLoadingPetdexManifest { return }
+        if !force, !petdexPets.isEmpty { return }
+
+        isLoadingPetdexManifest = true
+        defer { isLoadingPetdexManifest = false }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(from: Self.petdexManifestURL)
+            try validate(response: response)
+            let manifest = try JSONDecoder().decode(PetdexManifest.self, from: data)
+            try? data.write(to: petdexManifestCacheURL, options: .atomic)
+            petdexPets = manifest.pets
+        } catch {
+            if petdexPets.isEmpty {
+                loadError = error.localizedDescription
+            }
+        }
+    }
+
+    func searchPetdex(query rawQuery: String) async {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            petdexSearchResults = []
+            petdexSearchMessage = nil
+            return
+        }
+
+        if isSearchingPetdex { return }
+        isSearchingPetdex = true
+        petdexSearchMessage = nil
+        defer { isSearchingPetdex = false }
+
+        if petdexPets.isEmpty {
+            loadCachedPetdexManifest()
+        }
+        if petdexPets.isEmpty {
+            await loadPetdexManifest()
+        }
+
+        guard !petdexPets.isEmpty else {
+            petdexSearchResults = []
+            petdexSearchMessage = "Petdex search is unavailable."
+            return
+        }
+
+        let matches = petdexPets.filter { $0.matches(query) }
+        petdexSearchResults = Array(matches.prefix(160))
+        if matches.isEmpty {
+            petdexSearchMessage = "No Petdex matches."
+        } else if matches.count > petdexSearchResults.count {
+            petdexSearchMessage = "Showing \(petdexSearchResults.count) of \(matches.count) Petdex matches."
+        } else {
+            petdexSearchMessage = "Showing \(matches.count) Petdex matches."
+        }
+    }
+
+    private func petdexPet(slug: String) -> PetdexPet? {
+        petdexPets.first(where: { $0.slug == slug })
+    }
+
+    private func loadPetdexPet(slug: String) async {
+        if petdexPets.isEmpty {
+            await loadPetdexManifest(force: true)
+        }
+
+        guard let pet = petdexPet(slug: slug) else {
+            loadError = "Petdex pet not found: \(slug)"
+            return
+        }
+
+        applyPetdexPet(pet)
+    }
+
+    private func applyPetdexPet(_ pet: PetdexPet) {
+        template = nil
+        currentNodeID = nil
+        currentLoopVideoURL = nil
+        thumbnailURL = URL(string: pet.spritesheetUrl)
+        currentPetdexPet = pet
+        currentPetdexSpritesheetURL = localPetdexSpritesheetURL(for: pet.slug) ?? URL(string: pet.spritesheetUrl)
+        loadError = nil
+    }
+
+    private func localPetdexSpritesheetURL(for slug: String) -> URL? {
+        let directory = petdexSpritesheetCacheDirectory
+        for ext in ["webp", "png"] {
+            let url = directory.appendingPathComponent("\(slug).\(ext)")
+            if FileManager.default.fileExists(atPath: url.path) {
+                return url
+            }
+        }
+        return nil
+    }
+
+    private func downloadPetdexPet(slug: String) async -> Bool {
+        if petdexPets.isEmpty {
+            await loadPetdexManifest(force: true)
+        }
+        guard let pet = petdexPet(slug: slug),
+              let url = URL(string: pet.spritesheetUrl) else {
+            loadError = "Petdex pet not found: \(slug)"
+            return false
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            try validate(response: response)
+            let ext = url.pathExtension.isEmpty ? "webp" : url.pathExtension
+            let destination = petdexSpritesheetCacheDirectory.appendingPathComponent("\(slug).\(ext)")
+            try data.write(to: destination, options: .atomic)
+            if selectedSlug == pet.catalogEntry.id {
+                applyPetdexPet(pet)
+            }
+            return true
+        } catch {
+            loadError = error.localizedDescription
+            return false
         }
     }
 }

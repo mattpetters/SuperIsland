@@ -4,33 +4,77 @@ import SwiftUI
 private struct MascotGridPicker: View {
     @ObservedObject private var manager = MascotManager.shared
     @State private var downloadingSlug: String?
+    @State private var searchText = ""
 
     private let columns = [GridItem(.adaptive(minimum: 100, maximum: 120), spacing: 8)]
 
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 8) {
-            ForEach(manager.availableMascots) { entry in
-                mascotCell(entry)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                TextField("Search Petdex by name, kind, or creator", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .onSubmit { runPetdexSearch() }
+                if manager.isSearchingPetdex || manager.isLoadingPetdexManifest {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Button {
+                        runPetdexSearch()
+                    } label: {
+                        Image(systemName: "magnifyingglass.circle.fill")
+                            .font(.system(size: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : .accentColor)
+                    .disabled(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Color.primary.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            if let message = manager.petdexSearchMessage {
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(manager.availableMascots(matching: searchText)) { entry in
+                    mascotCell(entry)
+                }
             }
         }
     }
 
+    private func runPetdexSearch() {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        Task { await manager.searchPetdex(query: query) }
+    }
+
     private func mascotCell(_ entry: MascotCatalogEntry) -> some View {
-        let isSelected = manager.selectedSlug == entry.slug
-        let isDownloaded = manager.isMascotDownloaded(entry.slug)
-        let isDownloading = downloadingSlug == entry.slug
+        let selectionID = entry.id
+        let isSelected = manager.selectedSlug == selectionID
+        let isDownloaded = manager.isMascotDownloaded(selectionID)
+        let isDownloading = downloadingSlug == selectionID
 
         return Button {
             guard !isDownloading else { return }
             if isDownloaded {
-                manager.selectMascot(entry.slug)
+                manager.selectMascot(selectionID)
             } else {
-                downloadingSlug = entry.slug
+                downloadingSlug = selectionID
                 Task {
-                    let didDownload = await manager.downloadMascot(entry.slug)
+                    let didDownload = await manager.downloadMascot(selectionID)
                     downloadingSlug = nil
                     if didDownload {
-                        manager.selectMascot(entry.slug)
+                        manager.selectMascot(selectionID)
                     }
                 }
             }
@@ -41,12 +85,17 @@ private struct MascotGridPicker: View {
                         .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.primary.opacity(0.04))
                         .frame(height: 80)
 
-                    AsyncImage(url: URL(string: entry.thumbnailURL)) { image in
-                        image.resizable().scaledToFit()
-                    } placeholder: {
-                        ProgressView().controlSize(.small)
+                    if entry.source == .petdex, let url = URL(string: entry.thumbnailURL) {
+                        PetdexSpriteMascotView(url: url, size: 60, expression: "idle", animated: false)
+                            .frame(width: 60, height: 60)
+                    } else {
+                        AsyncImage(url: URL(string: entry.thumbnailURL)) { image in
+                            image.resizable().scaledToFit()
+                        } placeholder: {
+                            ProgressView().controlSize(.small)
+                        }
+                        .frame(width: 60, height: 60)
                     }
-                    .frame(width: 60, height: 60)
 
                     if !isDownloaded {
                         VStack {
@@ -72,6 +121,11 @@ private struct MascotGridPicker: View {
                 Text(entry.name)
                     .font(.caption)
                     .foregroundColor(isSelected ? .accentColor : .primary)
+                    .lineLimit(1)
+
+                Text(entry.providerName)
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
                     .lineLimit(1)
             }
         }
