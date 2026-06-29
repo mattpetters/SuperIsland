@@ -42,4 +42,18 @@ enum ActiveModule: Equatable, Hashable {
             return ExtensionManager.shared.installed.first(where: { $0.id == id })?.iconImage
         }
     }
+
+    /// An SF Symbol suitable for small/compact UI (island tab strip, order
+    /// list). Built-ins always have one; extensions only if their manifest
+    /// declares `symbol`. When nil, callers fall back to `iconImage`.
+    @MainActor
+    var compactSymbol: String? {
+        switch self {
+        case .builtIn(let module):
+            return module.iconName
+        case .extension_(let id):
+            let symbol = ExtensionManager.shared.installed.first(where: { $0.id == id })?.symbol
+            return (symbol?.isEmpty == false) ? symbol : nil
+        }
+    }
 }

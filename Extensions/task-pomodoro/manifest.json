@@ -1,7 +1,7 @@
 {
   "id": "superisland.task-pomodoro",
   "name": "Task Pomodoro",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "minAppVersion": "1.0.0",
   "main": "index.js",
   "author": {
@@ -9,6 +9,7 @@
   },
   "description": "Pomodoro timer with an optional Taskwarrior goal.",
   "icon": "icon.svg",
+  "symbol": "checklist",
   "license": "MIT",
   "categories": ["productivity", "timer", "tasks"],
   "permissions": ["notifications", "storage", "taskwarrior"],

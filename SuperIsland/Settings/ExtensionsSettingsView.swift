@@ -177,7 +177,9 @@ struct ExtensionsSettingsView: View {
     private func islandOrderRow(_ module: ActiveModule) -> some View {
         HStack(spacing: 8) {
             Group {
-                if let image = module.iconImage {
+                if let symbol = module.compactSymbol {
+                    Image(systemName: symbol)
+                } else if let image = module.iconImage {
                     Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
                 } else {
                     Image(systemName: module.iconName)

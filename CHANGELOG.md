@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+<!-- git-changelog-on-commit: a6510fe93a31e6677cbd0d8fbefe7ce1dd9defaf -->
+### Changed
+- Updated ExtensionHost/ActiveModule.swift,ExtensionHost/ExtensionManifest.swift Extensions/task-pomodoro/manifest.json,SUPER-ISLAND-EXTENSION-API.md SuperIsland/App/AppState.swift,SuperIsland/Settings/ExtensionsSettingsView.swift SuperIsland/Views/FullExpandedView.swift,SuperIsland/Views/IslandContainerView.swift based on the staged diff so the commit records the current implementation changes.
+
 <!-- git-changelog-on-commit: 03983c60c26ce962d481057ebabbd20b59009da2 -->
 ### Changed
 - Updated SuperIsland/App/AppState.swift,SuperIsland/Views/IslandContainerView.swift based on the staged diff so the commit records the current implementation changes.

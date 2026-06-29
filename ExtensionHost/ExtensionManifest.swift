@@ -60,6 +60,9 @@ struct ExtensionManifest: Codable, Identifiable, Hashable {
     let author: Author?
     let description: String
     let icon: String?
+    /// Optional SF Symbol name for compact contexts (island tab strip, order
+    /// list) where the full icon image is too small to read.
+    let symbol: String?
     let license: String?
     let categories: [String]
     let permissions: [String]
@@ -94,6 +97,7 @@ struct ExtensionManifest: Codable, Identifiable, Hashable {
         case author
         case description
         case icon
+        case symbol
         case license
         case categories
         case permissions
@@ -114,6 +118,7 @@ struct ExtensionManifest: Codable, Identifiable, Hashable {
         author = try container.decodeIfPresent(Author.self, forKey: .author)
         description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
         icon = try container.decodeIfPresent(String.self, forKey: .icon)
+        symbol = try container.decodeIfPresent(String.self, forKey: .symbol)
         license = try container.decodeIfPresent(String.self, forKey: .license)
         categories = try container.decodeIfPresent([String].self, forKey: .categories) ?? []
         permissions = try container.decodeIfPresent([String].self, forKey: .permissions) ?? []
@@ -137,6 +142,7 @@ struct ExtensionManifest: Codable, Identifiable, Hashable {
         try container.encodeIfPresent(author, forKey: .author)
         try container.encode(description, forKey: .description)
         try container.encodeIfPresent(icon, forKey: .icon)
+        try container.encodeIfPresent(symbol, forKey: .symbol)
         try container.encodeIfPresent(license, forKey: .license)
         try container.encode(categories, forKey: .categories)
         try container.encode(permissions, forKey: .permissions)

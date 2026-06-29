@@ -439,12 +439,15 @@ struct FullExpandedTopBarView: View {
         guard moduleTabs.contains(targetTab) else { return }
         let target = targetTab.id
 
+        // anchor: nil scrolls the minimum amount to keep the tab visible —
+        // a tab that's already on-screen stays put (no jarring jump to the
+        // leading edge when you simply click it).
         if animated {
             withAnimation(.easeInOut(duration: 0.22)) {
-                proxy.scrollTo(target, anchor: .leading)
+                proxy.scrollTo(target, anchor: nil)
             }
         } else {
-            proxy.scrollTo(target, anchor: .leading)
+            proxy.scrollTo(target, anchor: nil)
         }
     }
 
@@ -511,7 +514,13 @@ private struct FullExpandedTabButton: View {
 
     @ViewBuilder
     private var tabIcon: some View {
-        if let iconImage = tab.iconImage {
+        // Prefer a crisp SF Symbol when available (built-ins always, and
+        // extensions that declare `symbol`); fall back to the icon image only
+        // when there's no symbol, since detailed art is illegible at 11pt.
+        if let symbol = tab.compactSymbol {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+        } else if let iconImage = tab.iconImage {
             Image(nsImage: iconImage)
                 .renderingMode(.original)
                 .resizable()

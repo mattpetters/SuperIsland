@@ -56,6 +56,7 @@ Common fields:
 - `description` (string, default: `""`)
 - `author` (`{ name, url? }`)
 - `icon` (string path)
+- `symbol` (string, optional): SF Symbol name used in compact UI (island tab strip, order list) where the full `icon` is too small to read. Falls back to `icon` when unset.
 - `license` (string)
 - `categories` (string[])
 - `permissions` (string[])

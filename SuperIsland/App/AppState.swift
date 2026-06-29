@@ -207,6 +207,16 @@ enum FullExpandedTab: Hashable, Identifiable {
     }
 
     @MainActor
+    var compactSymbol: String? {
+        switch self {
+        case .home:
+            return "house.fill"
+        case .module(let module):
+            return module.compactSymbol
+        }
+    }
+
+    @MainActor
     var title: String {
         switch self {
         case .home:

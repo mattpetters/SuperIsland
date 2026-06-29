@@ -92,8 +92,6 @@ struct IslandContainerView: View {
         .onTapGesture {
             handleSurfaceTap()
         }
-        .scaleEffect(isReorderingModule ? 1.05 : 1.0)
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isReorderingModule)
         .gesture(moduleReorderGesture)
         .onDrop(of: ShelfStore.acceptedDropTypes, isTargeted: $isShelfDropTargeted) { providers in
             guard appState.shelfEnabled else { return false }
