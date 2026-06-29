@@ -55,20 +55,52 @@ final class MascotManager: ObservableObject {
         let maskoEntries = MascotTemplate.remoteTemplates.filter {
             query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.slug.localizedCaseInsensitiveContains(query)
         }
-        let petdexEntries = petdexSearchResults
+        let downloadedPetdex = downloadedPetdexEntries().filter {
+            query.isEmpty
+                || $0.name.localizedCaseInsensitiveContains(query)
+                || $0.slug.localizedCaseInsensitiveContains(query)
+        }
+        let searchEntries = petdexSearchResults
             .filter { $0.matches(query) }
             .map(\.catalogEntry)
 
-        if query.isEmpty {
-            var entries = maskoEntries
-            if let selectedPetdex = currentPetdexPet?.catalogEntry,
-               !entries.contains(where: { $0.id == selectedPetdex.id }) {
-                entries.insert(selectedPetdex, at: maskoEntries.count)
+        var seen = Set<String>()
+        var result: [MascotCatalogEntry] = []
+        func add(_ entries: [MascotCatalogEntry]) {
+            for entry in entries where seen.insert(entry.id).inserted {
+                result.append(entry)
             }
-            return entries
         }
 
-        return maskoEntries + Array(petdexEntries.prefix(160))
+        add(maskoEntries)
+        if let selectedPetdex = currentPetdexPet?.catalogEntry { add([selectedPetdex]) }
+        add(downloadedPetdex)               // previously-downloaded pets, even when not in use
+        if !query.isEmpty { add(Array(searchEntries.prefix(160))) }
+        return result
+    }
+
+    /// Petdex pets that have been downloaded (cached spritesheet on disk),
+    /// resolved from saved metadata so they show offline and when not in use.
+    func downloadedPetdexEntries() -> [MascotCatalogEntry] {
+        let directory = petdexSpritesheetCacheDirectory
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: nil
+        ) else { return [] }
+
+        var bySlug: [String: MascotCatalogEntry] = [:]
+        for file in files where ["webp", "png"].contains(file.pathExtension.lowercased()) {
+            let slug = file.deletingPathExtension().lastPathComponent
+            let name = loadSavedPetdexMetadata(slug: slug)?.displayName ?? slug
+            bySlug[slug] = MascotCatalogEntry(
+                slug: slug,
+                name: name,
+                thumbnailURL: file.absoluteString,   // local file URL renders offline
+                source: .petdex
+            )
+        }
+        return bySlug.values.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
     }
 
     var currentTemplateName: String {
@@ -339,6 +371,42 @@ final class MascotManager: ObservableObject {
         return dir
     }
 
+    private func petdexMetadataURL(for slug: String) -> URL {
+        petdexSpritesheetCacheDirectory.appendingPathComponent("\(slug).pet.json")
+    }
+
+    private func savePetdexMetadata(_ pet: PetdexPet) {
+        guard let data = try? JSONEncoder().encode(pet) else { return }
+        try? data.write(to: petdexMetadataURL(for: pet.slug), options: .atomic)
+    }
+
+    private func loadSavedPetdexMetadata(slug: String) -> PetdexPet? {
+        guard let data = try? Data(contentsOf: petdexMetadataURL(for: slug)) else { return nil }
+        return try? JSONDecoder().decode(PetdexPet.self, from: data)
+    }
+
+    /// Removes a downloaded mascot (Petdex spritesheet + metadata, or a cached
+    /// masko template). Bundled "otto" cannot be removed. Falls back to otto if
+    /// the removed mascot was selected.
+    func removeMascot(_ selectionID: String) {
+        if let petdexSlug = Self.petdexSlug(from: selectionID) {
+            let directory = petdexSpritesheetCacheDirectory
+            for ext in ["webp", "png"] {
+                try? FileManager.default.removeItem(at: directory.appendingPathComponent("\(petdexSlug).\(ext)"))
+            }
+            try? FileManager.default.removeItem(at: petdexMetadataURL(for: petdexSlug))
+        } else {
+            guard selectionID != "otto" else { return }
+            try? FileManager.default.removeItem(at: templateCacheDirectory.appendingPathComponent("\(selectionID).json"))
+            downloadedSlugs.remove(selectionID)
+        }
+
+        if selectedSlug == selectionID {
+            selectMascot("otto")
+        }
+        objectWillChange.send()
+    }
+
     private func loadCachedPetdexManifest() {
         guard let data = try? Data(contentsOf: petdexManifestCacheURL),
               let manifest = try? JSONDecoder().decode(PetdexManifest.self, from: data) else {
@@ -413,12 +481,18 @@ final class MascotManager: ObservableObject {
             await loadPetdexManifest(force: true)
         }
 
-        guard let pet = petdexPet(slug: slug) else {
-            loadError = "Petdex pet not found: \(slug)"
+        if let pet = petdexPet(slug: slug) {
+            applyPetdexPet(pet)
             return
         }
 
-        applyPetdexPet(pet)
+        // Offline / manifest-unavailable: use the metadata saved at download time.
+        if let pet = loadSavedPetdexMetadata(slug: slug) {
+            applyPetdexPet(pet)
+            return
+        }
+
+        loadError = "Petdex pet not found: \(slug)"
     }
 
     private func applyPetdexPet(_ pet: PetdexPet) {
@@ -458,6 +532,7 @@ final class MascotManager: ObservableObject {
             let ext = url.pathExtension.isEmpty ? "webp" : url.pathExtension
             let destination = petdexSpritesheetCacheDirectory.appendingPathComponent("\(slug).\(ext)")
             try data.write(to: destination, options: .atomic)
+            savePetdexMetadata(pet)
             if selectedSlug == pet.catalogEntry.id {
                 applyPetdexPet(pet)
             }

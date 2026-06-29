@@ -136,6 +136,15 @@ private struct MascotGridPicker: View {
                 .frame(height: 80)
                 .offset(y: -10)
         )
+        .contextMenu {
+            if isDownloaded && selectionID != "otto" {
+                Button(role: .destructive) {
+                    manager.removeMascot(selectionID)
+                } label: {
+                    Label("Remove download", systemImage: "trash")
+                }
+            }
+        }
     }
 }
 
